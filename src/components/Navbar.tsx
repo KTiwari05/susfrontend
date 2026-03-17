@@ -26,10 +26,11 @@ const NAV_ITEMS: { page: AppPage; label: string; icon: React.ReactNode }[] = [
   { page: "dashboard", label: "Dashboard",  icon: <ChartPie className="h-[15px] w-[15px]" /> },
   { page: "simulator", label: "Simulator",  icon: <SlidersHorizontal className="h-[15px] w-[15px]" /> },
   { page: "copilot",   label: "Copilot",    icon: <MessageSquare className="h-[15px] w-[15px]" /> },
-  { page: "emission-factors", label: "Emission Factors", icon: <Calculator className="h-[15px] w-[15px]" /> },
   { page: "analytics", label: "Analytics",  icon: <LineChart className="h-[15px] w-[15px]" /> },
   { page: "reports",   label: "Reports",    icon: <Brain className="h-[15px] w-[15px]" /> },
 ]
+
+const EMISSION_FACTOR_URL = "https://carbon-app-uadb.onrender.com"
 
 /* ════════════════════════════════════════════════════════
    NAV ITEM
@@ -117,6 +118,67 @@ function NavItem({
         />
       )}
     </button>
+  )
+}
+
+function NavExternal({
+  label,
+  href,
+  icon,
+}: {
+  label: string
+  href: string
+  icon: React.ReactNode
+}) {
+  const [hovered, setHovered] = useState(false)
+
+  return (
+    <a
+      href={href}
+      target="_self"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="relative flex items-center gap-2 px-1 outline-none"
+      style={{
+        height: "var(--nav-h)",
+        color: hovered ? "var(--text)" : "var(--muted)",
+        transition: "color 0.15s ease",
+        fontSize: 13,
+        fontWeight: 500,
+        letterSpacing: "-0.01em",
+        textDecoration: "none",
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        padding: "0 2px",
+      }}
+    >
+      <motion.span
+        animate={{ scale: hovered ? 1.08 : 1 }}
+        transition={{ type: "spring", stiffness: 400, damping: 22 }}
+        style={{ display: "flex", opacity: 0.8 }}
+      >
+        {icon}
+      </motion.span>
+      <span className="hidden sm:inline">{label}</span>
+
+      {hovered && (
+        <motion.span
+          layoutId="nav-hover-bg"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.12 }}
+          style={{
+            position: "absolute",
+            inset: "10px -6px",
+            borderRadius: 8,
+            background: "var(--surface-2)",
+            zIndex: -1,
+          }}
+        />
+      )}
+    </a>
   )
 }
 
@@ -398,6 +460,11 @@ export default function Navbar({
               icon={item.icon}
             />
           ))}
+          <NavExternal
+            label="Emission Factors"
+            href={EMISSION_FACTOR_URL}
+            icon={<Calculator className="h-[15px] w-[15px]" />}
+          />
         </nav>
 
         {/* ── Right controls ── */}
@@ -469,6 +536,11 @@ export default function Navbar({
               icon={item.icon}
             />
           ))}
+          <NavExternal
+            label="Emission Factors"
+            href={EMISSION_FACTOR_URL}
+            icon={<Calculator className="h-[15px] w-[15px]" />}
+          />
         </nav>
 
         <div
