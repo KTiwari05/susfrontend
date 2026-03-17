@@ -10,16 +10,186 @@ import type React from "react"
 import API, { getApiErrorMessage } from "../api/api"
 import SectionHeader from "../components/SectionHeader"
 import SimulationSlider from "../components/SimulationSlider"
+import CategoryTab from "../components/CategoryTab"
+import LeverChip from "../components/LeverChip"
 import { useAppState } from "../state/appState"
 
 function fmt(n: number) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(n)
 }
 
-/* ═══════════════════════════════════════════════
-   CONFIG
-═══════════════════════════════════════════════ */
-const LEVER_GROUPS = [
+type SliderState = {
+  renewable: number
+  evFleet: number
+  flightReduction: number
+  recycling: number
+  supplier: number
+  efficiency: number
+}
+
+type ActionPlanItem = {
+  id: string
+  title: string
+  summary: string
+  why: string
+  effort: "Low" | "Medium" | "High"
+  time: "0-3 mo" | "3-9 mo" | "9-24 mo"
+  levers: Partial<SliderState>
+  estReductionKg: number
+  estReductionPct: number
+}
+
+function Tag({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "good" | "warn" }) {
+  const style: React.CSSProperties =
+    tone === "good"
+      ? { background: "var(--primary-soft)", border: "1px solid var(--primary-muted)", color: "var(--primary)" }
+      : tone === "warn"
+      ? { background: "var(--warning-soft)", border: "1px solid color-mix(in srgb, var(--warning) 25%, transparent)", color: "var(--warning)" }
+      : { background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--muted)" }
+
+  return (
+    <span style={{
+      display: "inline-flex",
+      alignItems: "center",
+      padding: "2px 8px",
+      borderRadius: 999,
+      fontSize: 11,
+      fontWeight: 700,
+      ...style,
+    }}>
+      {children}
+    </span>
+  )
+}
+
+function applyLeverPreset(
+  base: SliderState,
+  patch: Partial<SliderState>
+): SliderState {
+  return { ...base, ...patch }
+}
+
+function clampPct(x: number) {
+  return Math.max(0, Math.min(100, x))
+}
+
+function ReductionMeter({ pct }: { pct: number | null }) {
+  const value = pct == null ? null : clampPct(Number(pct))
+  const size = 110
+  const stroke = 10
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const dash = value == null ? 0 : (value / 100) * c
+
+  return (
+    <div style={{
+      width: size,
+      flexShrink: 0,
+      display: "grid",
+      placeItems: "center",
+      position: "relative",
+    }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block" }}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="var(--border)"
+          strokeWidth={stroke}
+          opacity={0.9}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="var(--primary)"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${c - dash}`}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: "stroke-dasharray 220ms ease" }}
+          opacity={value == null ? 0.35 : 1}
+        />
+      </svg>
+
+      <div style={{
+        position: "absolute",
+        display: "grid",
+        placeItems: "center",
+        textAlign: "center",
+        gap: 2,
+      }}>
+        <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-0.02em", color: "var(--text)" }}>
+          {value == null ? "—" : `${value.toFixed(0)}%`}
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)" }}>
+          reduction
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function estimateReductionsFromLevers(emissions: any, levers: Partial<SliderState>) {
+  const renewable = clampPct(levers.renewable ?? 0)
+  const efficiency = clampPct(levers.efficiency ?? 0)
+  const evFleet = clampPct(levers.evFleet ?? 0)
+  const flightReduction = clampPct(levers.flightReduction ?? 0)
+  const recycling = clampPct(levers.recycling ?? 0)
+  const supplier = clampPct(levers.supplier ?? 0)
+
+  const energy = Number(emissions?.energy_emissions ?? 0)
+  const transport = Number(emissions?.transport_emissions ?? 0)
+  const waste = Number(emissions?.waste_emissions ?? 0)
+  const supply = Number(emissions?.supply_chain_emissions ?? 0)
+  const packaging = Number(emissions?.packaging_emissions ?? 0)
+  const retailOps = Number(emissions?.retail_operations_emissions ?? 0)
+  const procurement = Number(emissions?.procurement_emissions ?? 0)
+  const total = Number(emissions?.total_emissions ?? (energy + transport + waste + Number(emissions?.water_emissions ?? 0) + supply + packaging + retailOps + procurement))
+
+  const energyRenewable = energy * (renewable / 100) * 0.8
+  const energyEfficiency = (energy - energyRenewable) * (efficiency / 100) * 0.5
+
+  const transportEv = transport * (evFleet / 100) * 0.6
+  const transportAfterEv = transport - transportEv
+  const transportFlight = transportAfterEv * (flightReduction / 100) * 0.4
+
+  const wasteRecycling = waste * (recycling / 100) * 0.7
+  const supplySupplier = supply * (supplier / 100) * 0.5
+  const procurementSupplier = procurement * (supplier / 100) * 0.35
+
+  const retailEff = retailOps * (efficiency / 100) * 0.35
+  const retailAfterEff = retailOps - retailEff
+  const retailRenewable = retailAfterEff * (renewable / 100) * 0.5
+
+  const packagingRecycling = packaging * (recycling / 100) * 0.15
+
+  const kg =
+    energyRenewable +
+    energyEfficiency +
+    transportEv +
+    transportFlight +
+    wasteRecycling +
+    supplySupplier +
+    procurementSupplier +
+    retailEff +
+    retailRenewable +
+    packagingRecycling
+
+  const pct = total > 0 ? (kg / total) * 100 : 0
+  return { kg, pct }
+}
+
+const LEVER_GROUPS: {
+  key: string
+  group: string
+  icon: React.ReactNode
+  color: string
+  bg: string
+  levers: { key: keyof SliderState; label: string; hint: string; icon: React.ReactNode }[]
+}[] = [
   {
     key: "energy",
     group: "Energy",
@@ -27,8 +197,8 @@ const LEVER_GROUPS = [
     color: "#f59e0b",
     bg: "rgba(245,158,11,0.10)",
     levers: [
-      { key: "renewable",  label: "Renewable electricity", hint: "Increase clean energy procurement",   icon: <Zap size={15} /> },
-      { key: "efficiency", label: "Energy efficiency",     hint: "Retrofits, controls, optimization",   icon: <Gauge size={15} /> },
+      { key: "renewable", label: "Renewable electricity", hint: "Increase clean energy procurement", icon: <Zap size={15} /> },
+      { key: "efficiency", label: "Energy efficiency", hint: "Retrofits, controls, optimization", icon: <Gauge size={15} /> },
     ],
   },
   {
@@ -38,8 +208,8 @@ const LEVER_GROUPS = [
     color: "#3b82f6",
     bg: "rgba(59,130,246,0.10)",
     levers: [
-      { key: "evFleet",         label: "EV fleet transition", hint: "Electrify vehicles and logistics", icon: <Car size={15} /> },
-      { key: "flightReduction", label: "Flight reduction",    hint: "Cut travel, switch to rail",        icon: <Plane size={15} /> },
+      { key: "evFleet", label: "EV fleet transition", hint: "Electrify vehicles and logistics", icon: <Car size={15} /> },
+      { key: "flightReduction", label: "Flight reduction", hint: "Cut travel, switch to rail", icon: <Plane size={15} /> },
     ],
   },
   {
@@ -49,271 +219,176 @@ const LEVER_GROUPS = [
     color: "#10b981",
     bg: "rgba(16,185,129,0.10)",
     levers: [
-      { key: "recycling", label: "Waste recycling",        hint: "Circular practices, diversion",    icon: <Recycle size={15} /> },
-      { key: "supplier",  label: "Supplier sustainability", hint: "Lower Scope 3 engagement",         icon: <Factory size={15} /> },
+      { key: "recycling", label: "Waste recycling", hint: "Circular practices, diversion", icon: <Recycle size={15} /> },
+      { key: "supplier", label: "Supplier sustainability", hint: "Lower Scope 3 engagement", icon: <Factory size={15} /> },
     ],
   },
 ]
 
-const ALL_LEVER_KEYS = LEVER_GROUPS.flatMap(g => g.levers.map(l => ({ ...l, color: g.color })))
+const ALL_LEVER_KEYS = LEVER_GROUPS.flatMap((g) => g.levers.map((l) => ({ ...l, color: g.color })))
 
-const SCENARIOS = [
-  { name: "Quick wins",       emoji: "⚡", desc: "Efficiency + recycling + flight reduction",   values: { renewable: 20, evFleet: 15, flightReduction: 40, recycling: 60, supplier: 20, efficiency: 35 } },
-  { name: "Renewables first", emoji: "☀️", desc: "Maximize clean energy & electrification",     values: { renewable: 90, evFleet: 70, flightReduction: 20, recycling: 30, supplier: 25, efficiency: 50 } },
-  { name: "Scope 3 focus",    emoji: "🔗", desc: "Supplier roadmap + data engagement",           values: { renewable: 30, evFleet: 20, flightReduction: 25, recycling: 40, supplier: 85, efficiency: 30 } },
+const DEFAULT_SLIDERS: SliderState = {
+  renewable: 40,
+  evFleet: 30,
+  flightReduction: 20,
+  recycling: 50,
+  supplier: 30,
+  efficiency: 25,
+}
+
+const SCENARIOS: { name: string; emoji: string; desc: string; values: SliderState }[] = [
+  {
+    name: "Quick wins",
+    emoji: "⚡",
+    desc: "Efficiency + recycling + flight reduction",
+    values: { renewable: 20, evFleet: 15, flightReduction: 40, recycling: 60, supplier: 20, efficiency: 35 },
+  },
+  {
+    name: "Renewables first",
+    emoji: "☀️",
+    desc: "Maximize clean energy & electrification",
+    values: { renewable: 90, evFleet: 70, flightReduction: 20, recycling: 30, supplier: 25, efficiency: 50 },
+  },
+  {
+    name: "Scope 3 focus",
+    emoji: "🔗",
+    desc: "Supplier roadmap + data engagement",
+    values: { renewable: 30, evFleet: 20, flightReduction: 25, recycling: 40, supplier: 85, efficiency: 30 },
+  },
 ]
-
-const DEFAULT_SLIDERS = { renewable: 40, evFleet: 30, flightReduction: 20, recycling: 50, supplier: 30, efficiency: 25 }
-
-/* ═══════════════════════════════════════════════
-   VERTICAL REDUCTION METER
-═══════════════════════════════════════════════ */
-function ReductionMeter({ pct }: { pct: number | null }) {
-  const clamped = Math.min(100, Math.max(0, pct ?? 0))
-  const milestones = [
-    { label: "Net Zero", at: 100, color: "#22c55e" },
-    { label: "−80%",     at: 80,  color: "#4ade80" },
-    { label: "−50%",     at: 50,  color: "#86efac" },
-  ]
-
-  const gradColor = clamped > 75 ? "#22c55e" : clamped > 40 ? "#60a5fa" : "#f59e0b"
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, userSelect: "none", minWidth: 64 }}>
-      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--muted)" }}>
-        Reduction
-      </div>
-
-      {/* Bar */}
-      <div style={{ position: "relative", width: 40, height: 200 }}>
-        {/* Track */}
-        <div style={{
-          position: "absolute", inset: 0,
-          borderRadius: 12,
-          background: "var(--surface-3)",
-          border: "1px solid var(--border)",
-        }} />
-
-        {/* Fill */}
-        <motion.div
-          animate={{ height: `${clamped}%` }}
-          transition={{ type: "spring", stiffness: 60, damping: 18 }}
-          style={{
-            position: "absolute", bottom: 0, left: 0, right: 0,
-            borderRadius: 12,
-            background: `linear-gradient(to top, ${gradColor}, color-mix(in srgb, ${gradColor} 50%, #fff))`,
-            boxShadow: `0 0 16px color-mix(in srgb, ${gradColor} 40%, transparent)`,
-          }}
-        />
-
-        {/* Milestone ticks */}
-        {milestones.map((m) => (
-          <div key={m.label} style={{
-            position: "absolute", left: 0, right: 0,
-            bottom: `${m.at}%`,
-            height: 1,
-            background: `color-mix(in srgb, ${m.color} 70%, transparent)`,
-            transform: "translateY(50%)",
-          }} />
-        ))}
-      </div>
-
-      {/* Milestone labels */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
-        {milestones.map((m) => (
-          <span key={m.label} style={{
-            fontSize: 9.5, fontWeight: 600,
-            padding: "1px 7px", borderRadius: 99,
-            background: `color-mix(in srgb, ${m.color} 15%, transparent)`,
-            color: m.color,
-            whiteSpace: "nowrap",
-          }}>
-            {m.label}
-          </span>
-        ))}
-      </div>
-
-      {/* Big number */}
-      <motion.div
-        key={Math.round(clamped)}
-        initial={{ scale: 0.8, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 400, damping: 22 }}
-        style={{
-          padding: "8px 12px", borderRadius: 10, textAlign: "center",
-          background: "var(--primary-soft)",
-          border: "1px solid var(--primary-muted)",
-        }}
-      >
-        <div style={{
-          fontSize: 20, fontWeight: 800,
-          fontFamily: '"DM Mono", monospace',
-          letterSpacing: "-0.04em",
-          color: "var(--primary)",
-          lineHeight: 1,
-        }}>
-          {pct !== null ? `−${clamped.toFixed(0)}%` : "—"}
-        </div>
-        <div style={{ fontSize: 9.5, fontWeight: 600, color: "var(--muted)", marginTop: 3 }}>CO₂e</div>
-      </motion.div>
-    </div>
-  )
-}
-
-/* ═══════════════════════════════════════════════
-   OUTCOME ROW
-═══════════════════════════════════════════════ */
-function OutcomeRow({ label, value, unit, highlight, icon }: {
-  label: string; value: string; unit?: string; highlight?: boolean; icon?: React.ReactNode
-}) {
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "10px 14px", borderRadius: 10,
-      background: highlight ? "var(--primary-soft)" : "var(--surface-2)",
-      border: `1px solid ${highlight ? "var(--primary-muted)" : "var(--border)"}`,
-      transition: "all 0.15s",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {icon && <span style={{ color: highlight ? "var(--primary)" : "var(--muted)", display: "flex" }}>{icon}</span>}
-        <span style={{ fontSize: 12.5, fontWeight: 500, color: highlight ? "var(--primary)" : "var(--text-secondary)" }}>
-          {label}
-        </span>
-      </div>
-      <div>
-        <span style={{
-          fontSize: 15, fontWeight: 700,
-          fontFamily: '"DM Mono", monospace',
-          letterSpacing: "-0.025em",
-          color: highlight ? "var(--primary)" : "var(--text)",
-        }}>
-          {value}
-        </span>
-        {unit && <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: 5 }}>{unit}</span>}
-      </div>
-    </div>
-  )
-}
-
-/* ═══════════════════════════════════════════════
-   CATEGORY TAB
-═══════════════════════════════════════════════ */
-function CategoryTab({ group, icon, color, bg, active, onClick }: {
-  group: string; icon: React.ReactNode; color: string; bg: string; active: boolean; onClick: () => void
-}) {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-        padding: "10px 14px", borderRadius: 12, minWidth: 80,
-        background: active ? bg : hovered ? "var(--surface-2)" : "transparent",
-        border: `1px solid ${active ? `color-mix(in srgb, ${color} 30%, transparent)` : hovered ? "var(--border)" : "transparent"}`,
-        color: active ? color : hovered ? "var(--text-secondary)" : "var(--muted)",
-        cursor: "pointer",
-        transition: "all 0.15s",
-      }}
-    >
-      <div style={{
-        width: 36, height: 36, display: "grid", placeItems: "center",
-        borderRadius: 10,
-        background: active ? `color-mix(in srgb, ${color} 18%, transparent)` : "var(--surface-3)",
-        border: `1px solid ${active ? `color-mix(in srgb, ${color} 28%, transparent)` : "var(--border)"}`,
-        color: active ? color : "var(--muted)",
-        transition: "all 0.15s",
-      }}>
-        {icon}
-      </div>
-      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.01em" }}>{group}</span>
-    </button>
-  )
-}
-
-/* ═══════════════════════════════════════════════
-   LEVER CHIP (summary strip)
-═══════════════════════════════════════════════ */
-function LeverChip({ label, value, color, onClick }: {
-  label: string; value: number; color: string; onClick: () => void
-}) {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 5,
-        padding: "4px 10px", borderRadius: 8, cursor: "pointer",
-        background: hovered
-          ? `color-mix(in srgb, ${color} 18%, transparent)`
-          : `color-mix(in srgb, ${color} 10%, transparent)`,
-        border: `1px solid color-mix(in srgb, ${color} ${hovered ? "35%" : "20%"}, transparent)`,
-        color,
-        transition: "all 0.13s",
-        transform: hovered ? "translateY(-1px)" : "none",
-      }}
-    >
-      <span style={{ fontSize: 12, fontWeight: 700, fontFamily: '"DM Mono", monospace' }}>{value}%</span>
-      <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.85 }}>{label}</span>
-    </button>
-  )
-}
-
-/* ═══════════════════════════════════════════════
-   SCENARIO CARD
-═══════════════════════════════════════════════ */
-function ScenarioCard({ scenario, onApply }: { scenario: typeof SCENARIOS[0]; onApply: () => void }) {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <motion.button
-      whileTap={{ scale: 0.97 }}
-      onClick={onApply}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: "flex", flexDirection: "column", gap: 6,
-        padding: "14px 16px", borderRadius: 12, textAlign: "left", cursor: "pointer",
-        background: hovered ? "var(--primary-soft)" : "var(--surface-2)",
-        border: `1px solid ${hovered ? "var(--primary-muted)" : "var(--border)"}`,
-        transition: "all 0.15s",
-        transform: hovered ? "translateY(-2px)" : "none",
-        boxShadow: hovered ? "var(--shadow)" : "none",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 18, lineHeight: 1 }}>{scenario.emoji}</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: hovered ? "var(--primary)" : "var(--text)", letterSpacing: "-0.01em" }}>
-            {scenario.name}
-          </span>
-        </div>
-        <ChevronRight size={13} style={{ color: hovered ? "var(--primary)" : "var(--muted)", opacity: hovered ? 1 : 0.5, transition: "all 0.13s", transform: hovered ? "translateX(2px)" : "none" }} />
-      </div>
-      <p style={{ fontSize: 11.5, color: hovered ? "var(--primary)" : "var(--muted)", margin: 0, lineHeight: 1.45, opacity: hovered ? 0.85 : 1 }}>
-        {scenario.desc}
-      </p>
-    </motion.button>
-  )
-}
 
 /* ═══════════════════════════════════════════════
    SIMULATOR PAGE
 ═══════════════════════════════════════════════ */
 export default function Simulator() {
-  const { emissionId, simulationResult, setSimulationResult, emissions, company, year, month } = useAppState()
+  const { emissionId, simulationResult, setSimulationResult, emissions } = useAppState()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>("")
   const [activeGroup, setActiveGroup] = useState(0)
-  const [sliders, setSliders] = useState(DEFAULT_SLIDERS)
+  const [sliders, setSliders] = useState<SliderState>(DEFAULT_SLIDERS)
+  const [strategyOpen, setStrategyOpen] = useState(true)
 
-  const set = (key: keyof typeof sliders) => (v: number) => setSliders(s => ({ ...s, [key]: v }))
+  const actionPlan = useMemo(() => {
+    if (!emissions) return null
+
+    const rows = [
+      ["Energy", emissions.energy_emissions],
+      ["Transport", emissions.transport_emissions],
+      ["Waste", emissions.waste_emissions],
+      ["Water", emissions.water_emissions],
+      ["Supply chain", emissions.supply_chain_emissions],
+      ["Packaging", (emissions as any).packaging_emissions ?? 0],
+      ["Retail operations", (emissions as any).retail_operations_emissions ?? 0],
+      ["Procurement", (emissions as any).procurement_emissions ?? 0],
+    ] as const
+    const top = [...rows].sort((a, b) => (Number(b[1] ?? 0) - Number(a[1] ?? 0))).slice(0, 3)
+
+    const candidates: Omit<ActionPlanItem, "estReductionKg" | "estReductionPct">[] = [
+      {
+        id: "efficiency",
+        title: "Energy + retail efficiency sprint",
+        summary: "Controls, retrofits, HVAC scheduling, refrigeration tuning.",
+        why: "Fastest way to cut operational emissions without changing demand.",
+        effort: "Low",
+        time: "0-3 mo",
+        levers: { efficiency: 45 },
+      },
+      {
+        id: "renewables",
+        title: "Renewables procurement",
+        summary: "Increase renewable electricity share via contracts / RECs.",
+        why: "Large impact if Energy or Retail ops is a hotspot.",
+        effort: "Medium",
+        time: "3-9 mo",
+        levers: { renewable: 80 },
+      },
+      {
+        id: "logistics",
+        title: "Logistics decarbonization",
+        summary: "EV transition + routing + fewer flights.",
+        why: "Reduces Transport quickly; improves resilience against fuel volatility.",
+        effort: "Medium",
+        time: "3-9 mo",
+        levers: { evFleet: 55, flightReduction: 40 },
+      },
+      {
+        id: "supplier",
+        title: "Scope 3 supplier program",
+        summary: "Supplier targets, contracts, primary data, and preferred suppliers.",
+        why: "If Supply chain / Procurement dominate, this is your biggest lever.",
+        effort: "High",
+        time: "9-24 mo",
+        levers: { supplier: 70 },
+      },
+      {
+        id: "circular",
+        title: "Packaging + circularity program",
+        summary: "Increase recycled content + lightweighting + recycling partnerships.",
+        why: "Reduces Packaging/Waste and improves brand + compliance posture.",
+        effort: "Medium",
+        time: "3-9 mo",
+        levers: { recycling: 70 },
+      },
+    ]
+
+    const enriched: ActionPlanItem[] = candidates
+      .map((c) => {
+        const est = estimateReductionsFromLevers(emissions, c.levers)
+        return {
+          ...c,
+          estReductionKg: est.kg,
+          estReductionPct: est.pct,
+        }
+      })
+      .sort((a, b) => b.estReductionKg - a.estReductionKg)
+
+    const currentEst = estimateReductionsFromLevers(emissions, sliders)
+
+    const totalEmissions = Number(emissions?.total_emissions ?? rows.reduce((s, r) => s + Number(r[1] ?? 0), 0))
+    const topCategory = top[0]?.[0] ?? "Emissions"
+    const topValue = Number(top[0]?.[1] ?? 0)
+    const topShare = totalEmissions > 0 ? (topValue / totalEmissions) * 100 : 0
+
+    const underused: string[] = []
+    if (sliders.renewable < 45) underused.push("renewables")
+    if (sliders.efficiency < 35) underused.push("efficiency")
+    if (sliders.evFleet < 35) underused.push("EV fleet")
+    if (sliders.flightReduction < 25) underused.push("flight reduction")
+    if (sliders.recycling < 45) underused.push("recycling")
+    if (sliders.supplier < 35) underused.push("supplier program")
+
+    const topMoves = enriched.slice(0, 2).map((i) => i.title)
+
+    const insights = [
+      {
+        title: "Primary hotspot",
+        detail: `${topCategory} contributes ~${topShare.toFixed(0)}% of total emissions. Prioritize actions that attack this first.`,
+      },
+      {
+        title: "Best near-term moves",
+        detail: topMoves.length ? `${topMoves.join(" and ")} deliver the highest modeled impact right now.` : "No high-impact moves available yet.",
+      },
+      {
+        title: underused.length ? "Underused levers" : "Balanced lever mix",
+        detail: underused.length
+          ? `Increase ${underused.slice(0, 3).join(", ")} to improve short-term reduction depth.`
+          : "Your current lever mix is balanced. Focus on execution and measurement.",
+      },
+    ]
+
+    return {
+      top,
+      items: enriched,
+      currentEst,
+      insights,
+    }
+  }, [emissions, sliders])
+
+  const set = (key: keyof SliderState) => (v: number) => setSliders(s => ({ ...s, [key]: v }))
   const resetSliders = () => setSliders(DEFAULT_SLIDERS)
-  const applyScenario = (s: typeof SCENARIOS[0]) => setSliders(s.values)
+  const applyScenario = (s: typeof SCENARIOS[0]) => setSliders(s.values as SliderState)
   const canRun = useMemo(() => typeof emissionId === "number", [emissionId])
-  const currentGroup = LEVER_GROUPS[activeGroup]
+  const currentGroup = LEVER_GROUPS[activeGroup] as (typeof LEVER_GROUPS)[number]
 
   const runSimulation = async () => {
     if (!canRun || emissionId == null) return
@@ -344,7 +419,7 @@ export default function Simulator() {
       <SectionHeader
         eyebrow="Decarbonization Simulator"
         title="Model strategy levers"
-        subtitle={`Tune interventions for ${company?.name ?? "your company"} (${String(month).padStart(2, "0")}/${year}) and model emissions reduction, sustainability score, and cost impact.`}
+        // subtitle={`Tune interventions for ${company?.name ?? "your company"} (${String(month).padStart(2, "0")}/${year}) and model emissions reduction, sustainability score, and cost impact.`}
         right={
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <SimBtn onClick={resetSliders} variant="ghost">
@@ -384,7 +459,7 @@ export default function Simulator() {
           Left (levers): fills space
           Right (outcome): fixed comfortable width
       ══════════════════════════════════════════════ */}
-      <div style={{ display: "grid", gap: 20, gridTemplateColumns: "1fr minmax(280px, 340px)", alignItems: "start" }}
+      <div style={{ display: "grid", gap: 20, gridTemplateColumns: "1fr minmax(300px, 380px)", alignItems: "start" }}
         className="sim-grid"
       >
 
@@ -454,17 +529,20 @@ export default function Simulator() {
                   style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}
                   className="sliders-grid"
                 >
-                  {currentGroup.levers.map((lever) => (
-                    <SimulationSlider
-                      key={lever.key}
-                      label={lever.label}
-                      value={sliders[lever.key as keyof typeof sliders]}
-                      onChange={set(lever.key as keyof typeof sliders)}
-                      hint={lever.hint}
-                      icon={lever.icon}
-                      color={currentGroup.color}
-                    />
-                  ))}
+                  {currentGroup.levers.map((lever) => {
+                    const k = lever.key as keyof SliderState
+                    return (
+                      <SimulationSlider
+                        key={String(k)}
+                        label={lever.label}
+                        value={sliders[k]}
+                        onChange={set(k)}
+                        hint={lever.hint}
+                        icon={lever.icon}
+                        color={currentGroup.color}
+                      />
+                    )
+                  })}
                 </motion.div>
               </AnimatePresence>
 
@@ -497,31 +575,10 @@ export default function Simulator() {
             </div>
           </div>
 
-          {/* ── Scenario presets ── */}
-          <div style={{
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: 18,
-            boxShadow: "var(--shadow-sm)",
-            padding: "18px 20px",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.01em" }}>Scenario presets</div>
-                <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>Apply a decarbonization playbook instantly</div>
-              </div>
-              <Target size={15} style={{ color: "var(--muted)" }} />
-            </div>
-            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(3, 1fr)" }} className="scenarios-grid">
-              {SCENARIOS.map(s => (
-                <ScenarioCard key={s.name} scenario={s} onApply={() => applyScenario(s)} />
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* ── RIGHT: Outcome panel ── */}
-        <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
+        <div className="sim-right" style={{ display: "grid", gap: 16, alignContent: "start" }}>
           <div style={{
             background: "var(--surface)",
             border: "1px solid var(--border)",
@@ -592,7 +649,197 @@ export default function Simulator() {
               Cost and reduction logic is heuristic. Use for stakeholder tradeoff exploration.
             </div>
           </div>
+
         </div>
+      </div>
+
+      {/* ── Scenario presets ── */}
+      <div style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 18,
+        boxShadow: "var(--shadow-sm)",
+        padding: "18px 20px",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.01em" }}>Scenario presets</div>
+            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>Apply a decarbonization playbook instantly</div>
+          </div>
+          <Target size={15} style={{ color: "var(--muted)" }} />
+        </div>
+        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(3, 1fr)" }} className="scenarios-grid">
+          {SCENARIOS.map(s => (
+            <ScenarioCard key={s.name} scenario={s} onApply={() => applyScenario(s)} />
+          ))}
+        </div>
+      </div>
+
+      {/* ── Action plan ── */}
+      <div
+        style={{
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 18,
+          boxShadow: "var(--shadow-sm)",
+          overflow: "hidden",
+        }}
+      >
+        <button
+          onClick={() => setStrategyOpen((v) => !v)}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 16px",
+            background: "var(--surface-2)",
+            borderBottom: strategyOpen ? "1px solid var(--border)" : "none",
+            cursor: "pointer",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Leaf size={15} style={{ color: "var(--primary)" }} />
+            <div style={{ textAlign: "left" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Action plan</div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>Prioritized initiatives you can apply to levers</div>
+            </div>
+          </div>
+          <span style={{ color: "var(--muted)", fontSize: 12 }}>{strategyOpen ? "Hide" : "Show"}</span>
+        </button>
+
+        <AnimatePresence>
+          {strategyOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              style={{ overflow: "hidden" }}
+            >
+              <div style={{ padding: "14px 16px", display: "grid", gap: 12 }}>
+                {!actionPlan ? (
+                  <div style={{
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    background: "var(--warning-soft)",
+                    border: "1px solid color-mix(in srgb, var(--warning) 25%, transparent)",
+                    color: "var(--warning)",
+                    fontSize: 12.5,
+                  }}>
+                    Calculate or load a snapshot in Dashboard to unlock strategy guidance.
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 12 }}>
+                    <div style={{
+                      padding: "12px 12px",
+                      borderRadius: 12,
+                      background: "var(--surface-2)",
+                      border: "1px solid var(--border)",
+                      display: "grid",
+                      gap: 8,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)" }}>
+                          Hotspots
+                        </div>
+                        <Tag tone="neutral">Current levers est. −{actionPlan.currentEst.pct.toFixed(1)}%</Tag>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                        {actionPlan.top.map((t) => `${t[0]} (${fmt(Number(t[1] ?? 0))} kg)`).join(" · ")}
+                      </div>
+                    </div>
+
+                    <div className="ai-insights-grid" style={{ display: "grid", gap: 10 }}>
+                      {actionPlan.insights.map((insight) => (
+                        <div
+                          key={insight.title}
+                          style={{
+                            padding: "12px 12px",
+                            borderRadius: 12,
+                            background: "var(--surface-2)",
+                            border: "1px solid var(--border)",
+                            display: "grid",
+                            gap: 6,
+                          }}
+                        >
+                          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)" }}>
+                            AI insight
+                          </div>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)" }}>{insight.title}</div>
+                          <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                            {insight.detail}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="action-grid" style={{ display: "grid", gap: 12 }}>
+                      {actionPlan.items.map((it) => {
+                        const tone = it.estReductionPct >= 8 ? "good" : it.estReductionPct >= 4 ? "neutral" : "warn"
+                        return (
+                          <div key={it.id} style={{
+                            padding: "12px 12px",
+                            borderRadius: 14,
+                            background: "var(--surface-2)",
+                            border: "1px solid var(--border)",
+                            display: "grid",
+                            gap: 8,
+                          }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)", letterSpacing: "-0.01em" }}>{it.title}</div>
+                                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3, lineHeight: 1.45 }}>{it.summary}</div>
+                              </div>
+                              <div style={{ display: "grid", justifyItems: "end", gap: 6 }}>
+                                <Tag tone={tone as any}>Est. −{it.estReductionPct.toFixed(1)}%</Tag>
+                                <span style={{ fontSize: 12, fontWeight: 800, fontFamily: '"DM Mono", monospace', color: "var(--text)" }}>
+                                  −{fmt(it.estReductionKg)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                              <Tag tone="neutral">Effort: {it.effort}</Tag>
+                              <Tag tone="neutral">Time: {it.time}</Tag>
+                              {Object.entries(it.levers).map(([k, v]) => (
+                                <Tag key={k} tone="neutral">{k}:{v}%</Tag>
+                              ))}
+                              <ChevronRight size={13} style={{ color: "var(--muted)" }} />
+                            </div>
+
+                            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                              <span style={{ color: "var(--muted)", fontWeight: 700 }}>Why:</span> {it.why}
+                            </div>
+
+                            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                              <SimBtn
+                                variant="ghost"
+                                onClick={() => setSliders((s) => applyLeverPreset(s, it.levers))}
+                              >
+                                Apply to levers
+                              </SimBtn>
+                              <SimBtn
+                                variant="primary"
+                                onClick={() => {
+                                  setSliders((s) => applyLeverPreset(s, it.levers))
+                                  runSimulation()
+                                }}
+                                disabled={!canRun || loading}
+                              >
+                                Apply + run
+                              </SimBtn>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Responsive breakpoints */}
@@ -604,8 +851,99 @@ export default function Simulator() {
         @media (max-width: 640px) {
           .sliders-grid { grid-template-columns: 1fr !important; }
         }
+        .action-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .ai-insights-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        @media (max-width: 1100px) {
+          .ai-insights-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 980px) {
+          .action-grid { grid-template-columns: 1fr; }
+          .ai-insights-grid { grid-template-columns: 1fr; }
+        }
       `}</style>
     </div>
+  )
+}
+
+function OutcomeRow({ label, value, unit, icon, highlight }: { 
+  label: string; 
+  value: string; 
+  unit?: string; 
+  icon?: React.ReactNode; 
+  highlight?: boolean 
+}) {
+  return (
+    <div style={{ 
+      display: "flex", 
+      alignItems: "center", 
+      justifyContent: "space-between", 
+      gap: 8,
+      padding: "4px 0"
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {icon}
+        <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{label}</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <span style={{ 
+          fontSize: 12, 
+          fontWeight: 600, 
+          color: highlight ? "var(--primary)" : "var(--text)",
+          fontFamily: '"DM Mono", monospace'
+        }}>
+          {value}
+        </span>
+        {unit && (
+          <span style={{ fontSize: 11, color: "var(--muted)" }}>{unit}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ScenarioCard({ scenario, onApply }: { scenario: (typeof SCENARIOS)[number]; onApply: () => void }) {
+  const [hovered, setHovered] = useState(false)
+  const [pressed, setPressed] = useState(false)
+
+  return (
+    <button
+      onClick={onApply}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setPressed(false) }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      style={{
+        textAlign: "left",
+        width: "100%",
+        background: hovered ? "var(--surface-2)" : "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 14,
+        padding: "12px 12px",
+        cursor: "pointer",
+        boxShadow: hovered ? "var(--shadow-sm)" : "var(--shadow-xs)",
+        transform: pressed ? "scale(0.985)" : hovered ? "translateY(-1px)" : "none",
+        transition: "background 0.13s, transform 0.11s, box-shadow 0.13s",
+        outline: "none",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: "var(--text)", letterSpacing: "-0.01em" }}>
+            {scenario.name}
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.35 }}>
+            {scenario.desc}
+          </div>
+        </div>
+        <div style={{ fontSize: 18, lineHeight: 1, marginTop: 1 }} aria-hidden>
+          {scenario.emoji}
+        </div>
+      </div>
+    </button>
   )
 }
 

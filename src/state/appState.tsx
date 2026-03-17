@@ -7,6 +7,9 @@ export type Emissions = {
   waste_emissions: number
   water_emissions: number
   supply_chain_emissions: number
+  packaging_emissions?: number | null
+  retail_operations_emissions?: number | null
+  procurement_emissions?: number | null
   total_emissions: number
 }
 

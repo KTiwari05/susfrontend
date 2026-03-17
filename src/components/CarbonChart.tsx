@@ -1,6 +1,6 @@
 import { PieChart, Pie, Tooltip, Cell, ResponsiveContainer } from "recharts"
 
-const COLORS = ["#22c55e", "#60a5fa", "#f59e0b", "#a78bfa", "#f43f5e"]
+const COLORS = ["#2563eb", "#06b6d4", "#a855f7", "#38bdf8", "#f59e0b", "#f43f5e", "#22c55e"]
 
 export default function CarbonChart({ data }: any) {
 
@@ -10,6 +10,11 @@ export default function CarbonChart({ data }: any) {
     {name:"Waste", value:data.waste_emissions},
     {name:"Water", value:data.water_emissions},
     {name:"Supply Chain", value:data.supply_chain_emissions},
+    ...(data.packaging_emissions != null ? [{ name: "Packaging", value: data.packaging_emissions }] : []),
+    ...(data.retail_operations_emissions != null
+      ? [{ name: "Retail operations", value: data.retail_operations_emissions }]
+      : []),
+    ...(data.procurement_emissions != null ? [{ name: "Procurement", value: data.procurement_emissions }] : []),
   ]
 
   return (

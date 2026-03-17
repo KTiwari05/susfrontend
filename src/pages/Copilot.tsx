@@ -20,6 +20,7 @@ import API, { getApiErrorMessage } from "../api/api"
 import SectionHeader from "../components/SectionHeader"
 import SnapshotDetailsPanel from "../components/SnapshotDetailsPanel"
 import { useAppState } from "../state/appState"
+import { PieChart, Pie, ResponsiveContainer, Cell, Tooltip } from "recharts"
 
 type Msg = { role: "user" | "assistant"; content: string }
 
@@ -112,6 +113,7 @@ function KpiRow({ label, value }: { label: string; value: string }) {
 /* ─── Copilot ─────────────────────────────────────────────────────────────── */
 export default function Copilot() {
   const { emissionId, company, year, month, emissions, availablePeriods } = useAppState()
+
   const [q, setQ] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -132,7 +134,7 @@ export default function Copilot() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const scrollToEnd = () => {
-    window.setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 30)
+    window.setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 30)
   }
 
   const canChat = useMemo(() => typeof emissionId === "number", [emissionId])
@@ -154,7 +156,27 @@ export default function Copilot() {
       Waste: emissions.waste_emissions,
       Water: emissions.water_emissions,
       "Supply chain": emissions.supply_chain_emissions,
+      Packaging: emissions.packaging_emissions ?? 0,
+      "Retail operations": emissions.retail_operations_emissions ?? 0,
+      Procurement: emissions.procurement_emissions ?? 0,
     }
+  }, [emissions])
+
+  const breakdown = useMemo(() => {
+    if (!emissions) return []
+    const rows = [
+      { name: "Energy", value: emissions.energy_emissions, color: "#f59e0b" },
+      { name: "Transport", value: emissions.transport_emissions, color: "#3b82f6" },
+      { name: "Waste", value: emissions.waste_emissions, color: "#10b981" },
+      { name: "Water", value: emissions.water_emissions, color: "#38bdf8" },
+      { name: "Supply chain", value: emissions.supply_chain_emissions, color: "#8b5cf6" },
+      ...(typeof emissions.packaging_emissions === "number" ? [{ name: "Packaging", value: emissions.packaging_emissions, color: "#2563eb" }] : []),
+      ...(typeof emissions.retail_operations_emissions === "number"
+        ? [{ name: "Retail operations", value: emissions.retail_operations_emissions, color: "#06b6d4" }]
+        : []),
+      ...(typeof emissions.procurement_emissions === "number" ? [{ name: "Procurement", value: emissions.procurement_emissions, color: "#f43f5e" }] : []),
+    ]
+    return rows.filter((r) => Number.isFinite(r.value) && r.value > 0)
   }, [emissions])
 
   const ask = async (question?: string) => {
@@ -258,13 +280,18 @@ export default function Copilot() {
     ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`
   }, [q])
 
+  // Auto-scroll chat on new messages / loading
+  useEffect(() => {
+    scrollToEnd()
+  }, [messages.length, loading])
+
   return (
     <div className="mx-auto max-w-7xl grid gap-7">
 
       <SectionHeader
         eyebrow="AI Sustainability Copilot"
         title="Ask. Diagnose. Decide."
-        subtitle={`Grounded answers for ${company?.name ?? "your company"} (${String(month).padStart(2, "0")}/${year}) using your emissions snapshot and a sustainability knowledge base.`}
+        // subtitle={`Grounded answers for ${company?.name ?? "your company"} (${String(month).padStart(2, "0")}/${year}) using your emissions snapshot and a sustainability knowledge base.`}
       />
 
       <SnapshotDetailsPanel
@@ -298,16 +325,16 @@ export default function Copilot() {
         )}
       </AnimatePresence>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
+      <div className="grid gap-5">
 
         {/* ── Chat panel ── */}
         <div
-          className="flex flex-col overflow-hidden rounded-2xl"
+          className="copilot-chat flex flex-col overflow-hidden rounded-2xl"
           style={{
             background: "var(--surface)",
             border: "1px solid var(--border)",
             boxShadow: "var(--shadow)",
-            minHeight: 580,
+            minHeight: 560,
           }}
         >
           {/* Chat header */}
@@ -339,7 +366,7 @@ export default function Copilot() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-5 py-5 grid content-start gap-4">
+          <div className="copilot-messages flex-1 overflow-y-auto px-5 py-5 grid content-start gap-4">
             {messages.map((m, idx) => (
               <MessageBubble key={idx} msg={m} idx={idx} />
             ))}
@@ -436,12 +463,12 @@ export default function Copilot() {
           </div>
         </div>
 
-        {/* ── Right sidebar ── */}
-        <div className="grid gap-4 content-start">
+        {/* ── Insight cards ── */}
+        <div className="copilot-cards">
 
           {/* Context card */}
           <div
-            className="rounded-2xl p-5"
+            className="copilot-card rounded-2xl p-5"
             style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}
           >
             <div className="text-[13px] font-semibold mb-3" style={{ color: "var(--text)" }}>Context</div>
@@ -512,7 +539,7 @@ export default function Copilot() {
 
           {/* Insights & actions */}
           <div
-            className="rounded-2xl overflow-hidden"
+            className="copilot-card rounded-2xl overflow-hidden"
             style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}
           >
             <button
@@ -577,7 +604,7 @@ export default function Copilot() {
 
           {/* Snapshot KPIs */}
           <div
-            className="rounded-2xl p-5"
+            className="copilot-card rounded-2xl p-5"
             style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}
           >
             <div className="flex items-center gap-2 mb-3">
@@ -598,9 +625,61 @@ export default function Copilot() {
             )}
           </div>
 
+          {/* Emissions breakdown */}
+          <div
+            className="copilot-card rounded-2xl p-5"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="h-4 w-4" style={{ color: "var(--primary)" }} />
+              <span className="text-[13px] font-semibold" style={{ color: "var(--text)" }}>Breakdown</span>
+            </div>
+            {!breakdown.length ? (
+              <p
+                className="text-[12.5px] rounded-xl px-3 py-2.5"
+                style={{ background: "var(--warning-soft)", color: "var(--warning)", border: "1px solid color-mix(in srgb, var(--warning) 25%, transparent)" }}
+              >
+                No breakdown available. Load a snapshot first.
+              </p>
+            ) : (
+              <div className="grid gap-3">
+                <div style={{ height: 210 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={breakdown} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2} strokeWidth={0}>
+                        {breakdown.map((d) => (
+                          <Cell key={d.name} fill={d.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          background: "var(--surface)",
+                          border: "1px solid var(--border)",
+                          borderRadius: 12,
+                          color: "var(--text)",
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="grid gap-2">
+                  {breakdown.slice(0, 6).map((d) => (
+                    <div key={d.name} className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ background: d.color }} />
+                        <span className="text-[12.5px]" style={{ color: "var(--text-secondary)" }}>{d.name}</span>
+                      </div>
+                      <span className="text-[12.5px]" style={{ color: "var(--text)", fontFamily: '"DM Mono", monospace' }}>{fmt(d.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Quick prompts */}
           <div
-            className="rounded-2xl p-5"
+            className="copilot-card rounded-2xl p-5"
             style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}
           >
             <div className="flex items-center gap-2 mb-3">
@@ -625,6 +704,30 @@ export default function Copilot() {
           </div>
         </div>
       </div>
+
+      <style>{`
+        .copilot-chat {
+          height: min(720px, calc(100vh - 220px));
+        }
+        .copilot-messages {
+          scroll-behavior: smooth;
+        }
+        .copilot-cards {
+          column-count: 2;
+          column-gap: 16px;
+        }
+        .copilot-card {
+          break-inside: avoid;
+          margin: 0 0 16px;
+          display: block;
+        }
+        @media (max-width: 1280px) {
+          .copilot-chat { height: auto; }
+        }
+        @media (max-width: 980px) {
+          .copilot-cards { column-count: 1; }
+        }
+      `}</style>
     </div>
   )
 }

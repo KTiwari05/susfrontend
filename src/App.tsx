@@ -6,8 +6,9 @@ import Simulator from "./pages/Simulator"
 import Copilot from "./pages/Copilot"
 import Reports from "./pages/Reports"
 import Analytics from "./pages/Analytics"
+import EmissionFactors from "./pages/EmissionFactors"
 
-export type AppPage = "dashboard" | "analytics" | "simulator" | "copilot" | "reports"
+export type AppPage = "dashboard" | "analytics" | "simulator" | "copilot" | "reports" | "emission-factors"
 
 export default function App() {
   const [page, setPage] = useState<AppPage>("dashboard")
@@ -17,6 +18,7 @@ export default function App() {
     if (page === "analytics") return <Analytics />
     if (page === "simulator") return <Simulator />
     if (page === "copilot") return <Copilot />
+    if (page === "emission-factors") return <EmissionFactors />
     return <Reports />
   }, [page])
 

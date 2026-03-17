@@ -7,6 +7,8 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  Bar,
+  BarChart,
   Cell,
   Legend,
   Pie,
@@ -43,6 +45,9 @@ type Point = {
   waste: number
   water: number
   supply_chain: number
+  packaging?: number | null
+  retail_operations?: number | null
+  procurement?: number | null
 }
 
 function fmt(n: number) {
@@ -56,6 +61,9 @@ const COLORS = {
   Waste: "#1a6b3c",
   Water: "#0e7870",
   "Supply chain": "#8b5cf6",
+  Packaging: "#2563eb",
+  "Retail operations": "#06b6d4",
+  Procurement: "#f43f5e",
 }
 
 /* ─── Metric card ─────────────────────────────────────────────────────────── */
@@ -153,6 +161,24 @@ export default function Analytics() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [series, setSeries] = useState<Point[]>([])
+  const [ingredientLoading, setIngredientLoading] = useState(false)
+  const [ingredientError, setIngredientError] = useState("")
+  const [ingredientData, setIngredientData] = useState<{
+    years: number[]
+    ingredients: string[]
+    latest: { ingredient: string; year: number; procurement_emissions: number; total_emissions: number }[]
+    yoy: {
+      ingredient: string
+      year: number
+      previous_year: number | null
+      previous_procurement_emissions: number | null
+      procurement_emissions: number
+      yoy_pct: number | null
+    }[]
+    by_year: Record<string, any>[]
+  } | null>(null)
+  const [compareA, setCompareA] = useState<string>("")
+  const [compareB, setCompareB] = useState<string>("")
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [detailsEmissionId, setDetailsEmissionId] = useState<number | null>(null)
   const [showBreakdownTable, setShowBreakdownTable] = useState(false)
@@ -185,6 +211,34 @@ export default function Analytics() {
     return () => { mounted = false }
   }, [company])
 
+  useEffect(() => {
+    let mounted = true
+    const loadIngredients = async () => {
+      if (!company) return
+      setIngredientLoading(true)
+      setIngredientError("")
+      try {
+        const res = await API.get("/emissions/ingredient-analysis", { params: { company_id: company.id } })
+        if (!mounted) return
+        const data = res.data
+        setIngredientData(data ?? null)
+        const list = Array.isArray(data?.ingredients) ? (data.ingredients as string[]) : []
+        setCompareA(list[0] ?? "")
+        setCompareB(list[1] ?? list[0] ?? "")
+      } catch (e: any) {
+        if (!mounted) return
+        setIngredientError(getApiErrorMessage(e) ?? "Failed to load ingredient analysis")
+        setIngredientData(null)
+      } finally {
+        if (mounted) setIngredientLoading(false)
+      }
+    }
+    loadIngredients()
+    return () => {
+      mounted = false
+    }
+  }, [company])
+
   const chartData = useMemo(() =>
     series.map((p) => ({
       name: `${String(p.month).padStart(2, "0")}/${p.year}`,
@@ -193,18 +247,32 @@ export default function Analytics() {
       Waste: p.waste,
       Water: p.water,
       "Supply chain": p.supply_chain,
+      Packaging: p.packaging ?? 0,
+      "Retail operations": p.retail_operations ?? 0,
+      Procurement: p.procurement ?? 0,
     }))
   , [series])
 
   const breakdown = useMemo(() => {
     if (!emissions) return []
-    return [
+    const base = [
       { name: "Energy", value: emissions.energy_emissions, color: COLORS.Energy },
       { name: "Transport", value: emissions.transport_emissions, color: COLORS.Transport },
       { name: "Waste", value: emissions.waste_emissions, color: COLORS.Waste },
       { name: "Water", value: emissions.water_emissions, color: COLORS.Water },
       { name: "Supply chain", value: emissions.supply_chain_emissions, color: COLORS["Supply chain"] },
     ]
+    const extra = [
+      { key: "Packaging", value: emissions.packaging_emissions, color: COLORS.Packaging },
+      { key: "Retail operations", value: emissions.retail_operations_emissions, color: COLORS["Retail operations"] },
+      { key: "Procurement", value: emissions.procurement_emissions, color: COLORS.Procurement },
+    ]
+    for (const e of extra) {
+      if (typeof e.value === "number") {
+        base.push({ name: e.key, value: e.value, color: e.color } as any)
+      }
+    }
+    return base
   }, [emissions])
 
   const previousPeriod = useMemo(() => {
@@ -234,6 +302,9 @@ export default function Analytics() {
       wasteDelta: curr.waste - prev.waste,
       waterDelta: curr.water - prev.water,
       supplyDelta: curr.supply_chain - prev.supply_chain,
+      packagingDelta: (curr.packaging ?? 0) - (prev.packaging ?? 0),
+      retailOpsDelta: (curr.retail_operations ?? 0) - (prev.retail_operations ?? 0),
+      procurementDelta: (curr.procurement ?? 0) - (prev.procurement ?? 0),
     }
   }, [currentPoint, previousPoint])
 
@@ -292,7 +363,7 @@ export default function Analytics() {
       <SectionHeader
         eyebrow="Analytics"
         title="Trends & comparisons"
-        subtitle={`Track emissions over time for ${company?.name ?? "—"}. Current context: ${String(month).padStart(2, "0")}/${year}.`}
+        // subtitle={`Track emissions over time for ${company?.name ?? "—"}. Current context: ${String(month).padStart(2, "0")}/${year}.`}
         right={
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -391,6 +462,16 @@ export default function Analytics() {
             { label: "Waste", value: emissions?.waste_emissions ?? null, delta: comparison?.wasteDelta ?? null },
             { label: "Water", value: emissions?.water_emissions ?? null, delta: comparison?.waterDelta ?? null },
             { label: "Supply chain", value: emissions?.supply_chain_emissions ?? null, delta: comparison?.supplyDelta ?? null },
+          ].map((m, i) => (
+            <MetricCard key={m.label} label={m.label} value={m.value} delta={m.delta} index={i} />
+          ))}
+        </div>
+
+        <div className="grid gap-3 mt-3 md:grid-cols-3 lg:grid-cols-6">
+          {[
+            { label: "Packaging", value: emissions?.packaging_emissions ?? null, delta: comparison?.packagingDelta ?? null },
+            { label: "Retail ops", value: emissions?.retail_operations_emissions ?? null, delta: comparison?.retailOpsDelta ?? null },
+            { label: "Procurement", value: emissions?.procurement_emissions ?? null, delta: comparison?.procurementDelta ?? null },
           ].map((m, i) => (
             <MetricCard key={m.label} label={m.label} value={m.value} delta={m.delta} index={i} />
           ))}
@@ -629,6 +710,197 @@ export default function Analytics() {
                 </tr>
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Ingredient / procurement analysis ── */}
+      <div
+        className="rounded-2xl p-5"
+        style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-sm)" }}
+      >
+        <div className="flex items-center justify-between gap-3 mb-5">
+          <div>
+            <div className="text-[13px] font-semibold" style={{ color: "var(--text)" }}>Ingredient / material analysis</div>
+            <div className="text-[12px] mt-0.5" style={{ color: "var(--muted)" }}>
+              Procurement emissions by ingredient/material type (derived from stored snapshots)
+            </div>
+          </div>
+          <span
+            className="text-[12px] px-3 py-1 rounded-lg"
+            style={{ background: "var(--surface-2)", color: "var(--muted)", border: "1px solid var(--border)" }}
+          >
+            {ingredientLoading ? "Loading…" : ingredientData?.ingredients?.length ? `${ingredientData.ingredients.length} materials` : "—"}
+          </span>
+        </div>
+
+        {!!ingredientError && (
+          <div
+            className="rounded-xl px-4 py-3 text-[13px] mb-4"
+            style={{ background: "var(--error-soft)", border: "1px solid color-mix(in srgb, var(--error) 25%, transparent)", color: "var(--error)" }}
+          >
+            {ingredientError}
+          </div>
+        )}
+
+        {!ingredientData ? (
+          <div
+            className="rounded-xl px-4 py-3 text-[13px]"
+            style={{ background: "var(--warning-soft)", border: "1px solid color-mix(in srgb, var(--warning) 25%, transparent)", color: "var(--warning)" }}
+          >
+            No ingredient analysis available yet for this company.
+          </div>
+        ) : (
+          <div className="grid gap-5">
+            {/* Latest totals bar */}
+            <div style={{ height: 320 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={[...ingredientData.latest]
+                    .sort((a, b) => b.procurement_emissions - a.procurement_emissions)
+                    .slice(0, 12)
+                    .map((r) => ({ name: r.ingredient, procurement: r.procurement_emissions }))}
+                  margin={{ top: 10, right: 16, left: 0, bottom: 70 }}
+                >
+                  <CartesianGrid stroke="var(--border)" strokeDasharray="4 6" vertical={false} />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fill: "var(--muted)", fontSize: 11 }}
+                    interval={0}
+                    angle={-25}
+                    textAnchor="end"
+                    height={70}
+                  />
+                  <YAxis tick={{ fill: "var(--muted)", fontSize: 11, fontFamily: '"DM Mono", monospace' }} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend />
+                  <Bar dataKey="procurement" name="Procurement (kg CO₂e)" fill={COLORS.Procurement} radius={[10, 10, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* By-year trend */}
+            <div style={{ height: 320 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={ingredientData.by_year} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="var(--border)" strokeDasharray="4 6" vertical={false} />
+                  <XAxis dataKey="year" tick={{ fill: "var(--muted)", fontSize: 11, fontFamily: '"DM Mono", monospace' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "var(--muted)", fontSize: 11, fontFamily: '"DM Mono", monospace' }} axisLine={false} tickLine={false} width={52} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-secondary)", paddingTop: 12 }} />
+                  {(ingredientData.ingredients.slice(0, 6)).map((ing, i) => (
+                    <Area
+                      key={ing}
+                      type="monotone"
+                      dataKey={ing}
+                      stackId="1"
+                      stroke={Object.values(COLORS)[i % Object.values(COLORS).length]}
+                      fill={Object.values(COLORS)[i % Object.values(COLORS).length]}
+                      fillOpacity={0.12}
+                      strokeWidth={1.5}
+                      activeDot={{ r: 4, strokeWidth: 0 }}
+                    />
+                  ))}
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* YoY + comparison */}
+            <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+              <div className="overflow-auto rounded-xl" style={{ border: "1px solid var(--border)" }}>
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-2)" }}>
+                      {[
+                        "Ingredient",
+                        "Year",
+                        "Procurement (kg)",
+                        "YoY %",
+                      ].map((h) => (
+                        <th key={h} className={`px-4 py-3 text-[11px] font-semibold uppercase tracking-wider ${h === "Ingredient" ? "text-left" : "text-right"}`} style={{ color: "var(--muted)" }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...ingredientData.yoy]
+                      .sort((a, b) => (b.procurement_emissions ?? 0) - (a.procurement_emissions ?? 0))
+                      .slice(0, 12)
+                      .map((r, idx) => (
+                        <tr key={`${r.ingredient}-${idx}`} style={{ borderBottom: "1px solid var(--border)", background: idx % 2 === 0 ? "var(--surface)" : "var(--surface-2)" }}>
+                          <td className="px-4 py-3" style={{ color: "var(--text)" }}>{r.ingredient}</td>
+                          <td className="px-4 py-3 text-right" style={{ color: "var(--muted)", fontFamily: '"DM Mono", monospace' }}>{r.year}</td>
+                          <td className="px-4 py-3 text-right" style={{ color: "var(--text)", fontFamily: '"DM Mono", monospace' }}>{fmt(r.procurement_emissions)}</td>
+                          <td className="px-4 py-3 text-right" style={{ color: r.yoy_pct != null && r.yoy_pct < 0 ? "var(--primary)" : "var(--error)", fontFamily: '"DM Mono", monospace' }}>
+                            {r.yoy_pct == null ? "—" : `${r.yoy_pct >= 0 ? "+" : ""}${r.yoy_pct.toFixed(1)}%`}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="rounded-2xl p-4" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+                <div className="text-[12px] font-semibold uppercase tracking-widest mb-3" style={{ color: "var(--muted)" }}>
+                  Compare materials
+                </div>
+                <div className="grid gap-3">
+                  <label className="grid gap-1.5">
+                    <span className="text-[12.5px] font-medium" style={{ color: "var(--text-secondary)" }}>Material A</span>
+                    <select
+                      value={compareA}
+                      onChange={(e) => setCompareA(e.target.value)}
+                      className="h-9 rounded-lg px-3 text-[13px] outline-none"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
+                    >
+                      {ingredientData.ingredients.map((ing) => (
+                        <option key={ing} value={ing}>
+                          {ing}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="grid gap-1.5">
+                    <span className="text-[12.5px] font-medium" style={{ color: "var(--text-secondary)" }}>Material B</span>
+                    <select
+                      value={compareB}
+                      onChange={(e) => setCompareB(e.target.value)}
+                      className="h-9 rounded-lg px-3 text-[13px] outline-none"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
+                    >
+                      {ingredientData.ingredients.map((ing) => (
+                        <option key={ing} value={ing}>
+                          {ing}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {(() => {
+                    const a = ingredientData.yoy.find((x) => x.ingredient === compareA) ?? null
+                    const b = ingredientData.yoy.find((x) => x.ingredient === compareB) ?? null
+                    return (
+                      <div className="grid gap-2 mt-2">
+                        <div className="text-[12.5px]" style={{ color: "var(--text-secondary)" }}>
+                          Latest year: <span style={{ color: "var(--text)", fontFamily: '"DM Mono", monospace' }}>{ingredientData.years[ingredientData.years.length - 1] ?? "—"}</span>
+                        </div>
+                        <div className="grid gap-2">
+                          <div className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                            <span className="text-[12.5px]" style={{ color: "var(--muted)" }}>{compareA || "—"}</span>
+                            <span style={{ color: "var(--text)", fontFamily: '"DM Mono", monospace' }}>{a ? fmt(a.procurement_emissions) : "—"}</span>
+                          </div>
+                          <div className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                            <span className="text-[12.5px]" style={{ color: "var(--muted)" }}>{compareB || "—"}</span>
+                            <span style={{ color: "var(--text)", fontFamily: '"DM Mono", monospace' }}>{b ? fmt(b.procurement_emissions) : "—"}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

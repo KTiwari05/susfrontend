@@ -6,6 +6,7 @@ import {
   LineChart,
   MessageSquare,
   SlidersHorizontal,
+  Calculator,
   ChevronDown,
   Building2,
   Calendar,
@@ -25,6 +26,7 @@ const NAV_ITEMS: { page: AppPage; label: string; icon: React.ReactNode }[] = [
   { page: "dashboard", label: "Dashboard",  icon: <ChartPie className="h-[15px] w-[15px]" /> },
   { page: "simulator", label: "Simulator",  icon: <SlidersHorizontal className="h-[15px] w-[15px]" /> },
   { page: "copilot",   label: "Copilot",    icon: <MessageSquare className="h-[15px] w-[15px]" /> },
+  { page: "emission-factors", label: "Emission Factors", icon: <Calculator className="h-[15px] w-[15px]" /> },
   { page: "analytics", label: "Analytics",  icon: <LineChart className="h-[15px] w-[15px]" /> },
   { page: "reports",   label: "Reports",    icon: <Brain className="h-[15px] w-[15px]" /> },
 ]
@@ -300,7 +302,7 @@ export default function Navbar({
     }
     load()
     return () => { mounted = false }
-  }, [company, setCompany])
+  }, [setCompany])
 
   return (
     <header
@@ -366,7 +368,7 @@ export default function Navbar({
                 color: "var(--text)",
               }}
             >
-              SustainAI
+              TCS Envirozone AI
             </div>
             <div
               style={{

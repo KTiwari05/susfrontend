@@ -193,7 +193,7 @@ export default function Reports() {
       <SectionHeader
         eyebrow="ESG Report Studio"
         title="AI-generated sustainability narrative"
-        subtitle={`Generate an executive-ready monthly narrative for ${company?.name ?? "your company"} (${String(month).padStart(2, "0")}/${year}). Uses your stored emissions snapshot and backend LLM.`}
+        // subtitle={`Generate an executive-ready monthly narrative for ${company?.name ?? "your company"} (${String(month).padStart(2, "0")}/${year}). Uses your stored emissions snapshot and backend LLM.`}
       />
 
       {/* Alerts */}

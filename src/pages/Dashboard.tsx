@@ -4,6 +4,7 @@ import { Activity, ChevronDown, Database, Flame, Plus, Sparkles, X } from "lucid
 import { motion, AnimatePresence } from "framer-motion"
 import API, { getApiErrorMessage } from "../api/api"
 import CarbonChart from "../components/CarbonChart"
+import DashboardInsights from "../components/DashboardInsights"
 import SectionHeader from "../components/SectionHeader"
 import SnapshotDetailsPanel from "../components/SnapshotDetailsPanel"
 import { type Company, useAppState } from "../state/appState"
@@ -116,6 +117,75 @@ function FormCard({
 }
 
 /* ═══════════════════════════════════════════════════
+   COLLAPSIBLE CARD
+═══════════════════════════════════════════════════ */
+function CollapsibleCard({
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  title: string
+  children: React.ReactNode
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div style={{
+      background: "var(--surface)",
+      border: "1px solid var(--border)",
+      borderRadius: "var(--r-lg)",
+      boxShadow: "var(--shadow-sm)",
+      overflow: "hidden",
+    }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          padding: "14px 16px",
+          background: "var(--surface-2)",
+          border: "none",
+          cursor: "pointer",
+        }}
+      >
+        <span style={{
+          fontSize: 12,
+          fontWeight: 800,
+          letterSpacing: "0.07em",
+          textTransform: "uppercase",
+          color: "var(--muted)",
+        }}>
+          {title}
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 12 }}>
+          {open ? "Hide" : "Show"}
+          <ChevronDown style={{ width: 14, height: 14, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+        </span>
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            style={{ overflow: "hidden" }}
+          >
+            <div style={{ padding: "16px" }}>
+              <div style={{ display: "grid", gap: 12 }}>{children}</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
    STYLED SELECT
 ═══════════════════════════════════════════════════ */
 function StyledSelect({
@@ -173,6 +243,67 @@ function StyledSelect({
           color: "var(--muted)",
           pointerEvents: "none",
         }} />
+      </div>
+    </label>
+  )
+}
+
+function SelectInline({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  options: { value: string; label: string }[]
+}) {
+  const [focused, setFocused] = useState(false)
+  return (
+    <label style={{ display: "grid", gap: 6 }}>
+      <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-secondary)" }}>{label}</span>
+      <div style={{ position: "relative" }}>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={{
+            width: "100%",
+            height: 34,
+            paddingLeft: 10,
+            paddingRight: 28,
+            borderRadius: "var(--r-sm)",
+            border: `1px solid ${focused ? "var(--primary)" : "var(--border-strong)"}`,
+            background: focused ? "var(--surface)" : "var(--surface-2)",
+            color: "var(--text)",
+            fontSize: 13,
+            fontFamily: "Outfit, sans-serif",
+            appearance: "none",
+            outline: "none",
+            boxShadow: focused ? "0 0 0 3px var(--primary-dim)" : "none",
+            transition: "border-color 0.13s, box-shadow 0.13s, background 0.13s",
+          }}
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown
+          style={{
+            position: "absolute",
+            right: 8,
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: 11,
+            height: 11,
+            color: "var(--muted)",
+            pointerEvents: "none",
+          }}
+        />
       </div>
     </label>
   )
@@ -282,6 +413,24 @@ export default function Dashboard() {
     recycled_waste_kg: 0,
     water_usage_m3: 0,
     supplier_emissions: 0,
+    packaging_material_type: "plastic",
+    packaging_weight_kg: 0,
+    packaging_recycled_material_pct: 0,
+    packaging_emission_per_kg: 2,
+    packaging_to_product_ratio: 0.08,
+    packaging_recyclability_pct: 70,
+    store_electricity_kwh: 0,
+    hvac_kwh: 0,
+    refrigeration_kwh: 0,
+    refrigeration_leakage_kg: 0,
+    lighting_kwh: 0,
+    store_floor_area_sqft: 0,
+    store_operating_hours: 0,
+    supplier_emission_intensity: 0,
+    procurement_material_type: "cocoa butter milk chocolate",
+    sourcing_geography: "APAC",
+    lifecycle_emissions_per_unit: 0,
+    quantity_purchased: 0,
   })
 
   useEffect(() => {
@@ -338,13 +487,17 @@ export default function Dashboard() {
 
   const hotspots = useMemo(() => {
     if (!emissions) return []
-    return ([
+    const list = [
       ["Energy", emissions.energy_emissions],
       ["Transport", emissions.transport_emissions],
       ["Waste", emissions.waste_emissions],
       ["Water", emissions.water_emissions],
       ["Supply chain", emissions.supply_chain_emissions],
-    ] as const).slice().sort((a, b) => b[1] - a[1]).slice(0, 3)
+      ["Packaging", emissions.packaging_emissions ?? 0],
+      ["Retail operations", emissions.retail_operations_emissions ?? 0],
+      ["Procurement", emissions.procurement_emissions ?? 0],
+    ] as const
+    return [...list].filter(([, v]) => Number(v) > 0).sort((a, b) => b[1] - a[1]).slice(0, 3)
   }, [emissions])
 
   const hotspotMax = useMemo(() =>
@@ -366,12 +519,38 @@ export default function Dashboard() {
     }
   }
 
-  const loadSample = () => setForm({
-    electricity_kwh: 20000, renewable_electricity_percentage: 20,
-    diesel_liters: 1000, petrol_liters: 500, flight_km: 10000,
-    shipping_km: 20000, waste_kg: 2000, recycled_waste_kg: 800,
-    water_usage_m3: 500, supplier_emissions: 100,
-  })
+  const loadSample = () => {
+    setForm({
+      electricity_kwh: 20000,
+      renewable_electricity_percentage: 20,
+      diesel_liters: 1000,
+      petrol_liters: 500,
+      flight_km: 10000,
+      shipping_km: 20000,
+      waste_kg: 2000,
+      recycled_waste_kg: 800,
+      water_usage_m3: 500,
+      supplier_emissions: 100,
+      packaging_material_type: "plastic",
+      packaging_weight_kg: 650,
+      packaging_recycled_material_pct: 35,
+      packaging_emission_per_kg: 2.4,
+      packaging_to_product_ratio: 0.09,
+      packaging_recyclability_pct: 72,
+      store_electricity_kwh: 18000,
+      hvac_kwh: 4200,
+      refrigeration_kwh: 3800,
+      refrigeration_leakage_kg: 2.1,
+      lighting_kwh: 2400,
+      store_floor_area_sqft: 9500,
+      store_operating_hours: 320,
+      supplier_emission_intensity: 2.1,
+      procurement_material_type: "cocoa butter milk chocolate",
+      sourcing_geography: "APAC",
+      lifecycle_emissions_per_unit: 7.2,
+      quantity_purchased: 4800,
+    })
+  }
 
   const years = useMemo(() => {
     const now = new Date().getFullYear()
@@ -388,8 +567,8 @@ export default function Dashboard() {
       {/* ── Header ── */}
       <SectionHeader
         eyebrow="Sustainability Intelligence"
-        title="Carbon footprint overview"
-        subtitle="Enter operational data for an organization. We compute an emissions snapshot and reuse the same record for simulation, reporting and the AI copilot."
+        title="Carbon footprint "
+        // subtitle="Enter operational data for an organization. We compute an emissions snapshot and reuse the same record for simulation, reporting and the AI copilot."
         right={
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
             <Btn onClick={() => setDetailsOpen(true)} disabled={!emissionId} variant="ghost">
@@ -581,37 +760,207 @@ export default function Dashboard() {
             </AnimatePresence>
           </FormCard>
 
-          {/* Energy */}
-          <FormCard title="Energy">
+          <CollapsibleCard title="Energy" defaultOpen>
             <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
               <Field label="Electricity consumption" value={form.electricity_kwh} onChange={(v) => setForm((f) => ({ ...f, electricity_kwh: Math.max(0, v) }))} unit="kWh" min={0} />
               <Field label="Renewable electricity" value={form.renewable_electricity_percentage} onChange={(v) => setForm((f) => ({ ...f, renewable_electricity_percentage: Math.min(100, Math.max(0, v)) }))} unit="%" min={0} max={100} />
             </div>
-          </FormCard>
+          </CollapsibleCard>
 
-          {/* Transport */}
-          <FormCard title="Transport">
+          <CollapsibleCard title="Transport" defaultOpen>
             <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
               <Field label="Diesel used" value={form.diesel_liters} onChange={(v) => setForm((f) => ({ ...f, diesel_liters: Math.max(0, v) }))} unit="L" min={0} />
               <Field label="Petrol used" value={form.petrol_liters} onChange={(v) => setForm((f) => ({ ...f, petrol_liters: Math.max(0, v) }))} unit="L" min={0} />
               <Field label="Business flights" value={form.flight_km} onChange={(v) => setForm((f) => ({ ...f, flight_km: Math.max(0, v) }))} unit="km" min={0} />
               <Field label="Shipping distance" value={form.shipping_km} onChange={(v) => setForm((f) => ({ ...f, shipping_km: Math.max(0, v) }))} unit="km" min={0} />
             </div>
-          </FormCard>
+          </CollapsibleCard>
 
-          {/* Waste / Water / Supply */}
-          <FormCard title="Waste, Water & Supply chain">
+          <CollapsibleCard title="Waste, Water & Supply chain" defaultOpen>
             <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
               <Field label="Waste generated" value={form.waste_kg} onChange={(v) => setForm((f) => ({ ...f, waste_kg: Math.max(0, v) }))} unit="kg" min={0} />
               <Field label="Recycled waste" value={form.recycled_waste_kg} onChange={(v) => setForm((f) => ({ ...f, recycled_waste_kg: Math.max(0, v) }))} unit="kg" min={0} />
               <Field label="Water usage" value={form.water_usage_m3} onChange={(v) => setForm((f) => ({ ...f, water_usage_m3: Math.max(0, v) }))} unit="m³" min={0} />
               <Field label="Supplier emissions" value={form.supplier_emissions} onChange={(v) => setForm((f) => ({ ...f, supplier_emissions: Math.max(0, v) }))} unit="kg CO₂e" min={0} />
             </div>
-          </FormCard>
+          </CollapsibleCard>
+
+          <CollapsibleCard title="Packaging" defaultOpen={false}>
+            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+              <SelectInline
+                label="Material type"
+                value={form.packaging_material_type}
+                onChange={(v) => setForm((f) => ({ ...f, packaging_material_type: v }))}
+                options={[
+                  { value: "plastic", label: "Plastic" },
+                  { value: "glass", label: "Glass" },
+                  { value: "aluminum", label: "Aluminum" },
+                  { value: "paper", label: "Paper" },
+                ]}
+              />
+              <Field
+                label="Weight of packaging"
+                value={form.packaging_weight_kg}
+                onChange={(v) => setForm((f) => ({ ...f, packaging_weight_kg: Math.max(0, v) }))}
+                unit="kg"
+                min={0}
+              />
+              <Field
+                label="Virgin vs recycled material"
+                value={form.packaging_recycled_material_pct}
+                onChange={(v) => setForm((f) => ({ ...f, packaging_recycled_material_pct: Math.min(100, Math.max(0, v)) }))}
+                unit="%"
+                min={0}
+                max={100}
+              />
+              <Field
+                label="Emission per kg of material"
+                value={form.packaging_emission_per_kg}
+                onChange={(v) => setForm((f) => ({ ...f, packaging_emission_per_kg: Math.max(0, v) }))}
+                unit="kg CO₂e/kg"
+                min={0}
+                step={0.1}
+              />
+              <Field
+                label="Packaging-to-product ratio"
+                value={form.packaging_to_product_ratio}
+                onChange={(v) => setForm((f) => ({ ...f, packaging_to_product_ratio: Math.max(0, v) }))}
+                unit="ratio"
+                min={0}
+                step={0.01}
+              />
+              <Field
+                label="Recyclability"
+                value={form.packaging_recyclability_pct}
+                onChange={(v) => setForm((f) => ({ ...f, packaging_recyclability_pct: Math.min(100, Math.max(0, v)) }))}
+                unit="%"
+                min={0}
+                max={100}
+              />
+            </div>
+          </CollapsibleCard>
+
+          <CollapsibleCard title="Retail Operations" defaultOpen={false}>
+            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+              <Field
+                label="Store electricity consumption"
+                value={form.store_electricity_kwh}
+                onChange={(v) => setForm((f) => ({ ...f, store_electricity_kwh: Math.max(0, v) }))}
+                unit="kWh"
+                min={0}
+              />
+              <Field
+                label="HVAC usage"
+                value={form.hvac_kwh}
+                onChange={(v) => setForm((f) => ({ ...f, hvac_kwh: Math.max(0, v) }))}
+                unit="kWh"
+                min={0}
+              />
+              <Field
+                label="Refrigeration systems"
+                value={form.refrigeration_kwh}
+                onChange={(v) => setForm((f) => ({ ...f, refrigeration_kwh: Math.max(0, v) }))}
+                unit="kWh"
+                min={0}
+              />
+              <Field
+                label="Refrigeration leakage"
+                value={form.refrigeration_leakage_kg}
+                onChange={(v) => setForm((f) => ({ ...f, refrigeration_leakage_kg: Math.max(0, v) }))}
+                unit="kg"
+                min={0}
+                step={0.1}
+              />
+              <Field
+                label="Lighting"
+                value={form.lighting_kwh}
+                onChange={(v) => setForm((f) => ({ ...f, lighting_kwh: Math.max(0, v) }))}
+                unit="kWh"
+                min={0}
+              />
+              <Field
+                label="Store floor area"
+                value={form.store_floor_area_sqft}
+                onChange={(v) => setForm((f) => ({ ...f, store_floor_area_sqft: Math.max(0, v) }))}
+                unit="sq ft"
+                min={0}
+              />
+              <Field
+                label="Store operating hours"
+                value={form.store_operating_hours}
+                onChange={(v) => setForm((f) => ({ ...f, store_operating_hours: Math.max(0, v) }))}
+                unit="hrs/month"
+                min={0}
+              />
+            </div>
+          </CollapsibleCard>
+
+          <CollapsibleCard title="Raw Materials & Procurement" defaultOpen={false}>
+            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+              <Field
+                label="Supplier emission intensity"
+                value={form.supplier_emission_intensity}
+                onChange={(v) => setForm((f) => ({ ...f, supplier_emission_intensity: Math.max(0, v) }))}
+                unit="kg CO₂e/unit"
+                min={0}
+                step={0.1}
+              />
+              <SelectInline
+                label="Material type"
+                value={form.procurement_material_type}
+                onChange={(v) => setForm((f) => ({ ...f, procurement_material_type: v }))}
+                options={[
+                  { value: "cocoa butter milk chocolate", label: "Cocoa butter milk chocolate" },
+                  { value: "meat", label: "Meat" },
+                  { value: "butter", label: "Butter" },
+                  { value: "milk", label: "Milk" },
+                  { value: "fish", label: "Fish" },
+                  { value: "chicken", label: "Chicken" },
+                  { value: "fruits", label: "Fruits" },
+                  { value: "nuts", label: "Nuts" },
+                  { value: "soy", label: "Soy" },
+                ]}
+              />
+              <SelectInline
+                label="Sourcing geography"
+                value={form.sourcing_geography}
+                onChange={(v) => setForm((f) => ({ ...f, sourcing_geography: v }))}
+                options={[
+                  { value: "EU", label: "EU" },
+                  { value: "SEA", label: "SEA" },
+                  { value: "LATAM", label: "LATAM" },
+                  { value: "NA", label: "NA" },
+                  { value: "APAC", label: "APAC" },
+                ]}
+              />
+              <Field
+                label="Lifecycle emissions per material"
+                value={form.lifecycle_emissions_per_unit}
+                onChange={(v) => setForm((f) => ({ ...f, lifecycle_emissions_per_unit: Math.max(0, v) }))}
+                unit="kg CO₂e/unit"
+                min={0}
+                step={0.1}
+              />
+              <Field
+                label="Quantity purchased"
+                value={form.quantity_purchased}
+                onChange={(v) => setForm((f) => ({ ...f, quantity_purchased: Math.max(0, v) }))}
+                unit="units"
+                min={0}
+              />
+            </div>
+          </CollapsibleCard>
         </div>
 
         {/* ── RIGHT: Results ── */}
         <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
+
+          <DashboardInsights
+            companyId={company?.id ?? null}
+            selectedYear={year}
+            selectedMonth={month}
+            snapshot={emissions}
+          />
 
           {/* Chart card */}
           <div style={{
