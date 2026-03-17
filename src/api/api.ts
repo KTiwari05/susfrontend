@@ -1,7 +1,7 @@
 import axios from "axios"
 
 const API = axios.create({
-  baseURL: "https://83153742-9792-4df1-a74b-d37510601483-00-1py7jffo8sj3m.pike.replit.dev:8000/",
+  baseURL: "https://78793be8-4b51-4b8e-9493-1e9032479e0f-00-3r63kqce1tm9.pike.replit.dev:8000/",
   // baseURL: "http://localhost:8000/",
   timeout: 20000,
 })
