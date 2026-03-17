@@ -461,7 +461,7 @@ export default function Navbar({
             />
           ))}
           <NavExternal
-            label="Emission Factors"
+            label="EF Agent"
             href={EMISSION_FACTOR_URL}
             icon={<Calculator className="h-[15px] w-[15px]" />}
           />
